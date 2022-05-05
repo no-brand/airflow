@@ -268,6 +268,18 @@ class EmrCreateJobFlowOperator(BaseOperator):
     A dictionary of JobFlow overrides can be passed that override
     the config from the connection.
 
+    EMR 클러스터를 생성합니다.
+    EMR connection 을 통해서 설정을 읽어들입니다. (Metadata Database 에 들어있는 'emr-default' 설정)
+    Job Flow Override 로 전달된 값이 기본 EMR connection 의 값을 필드별로 덮어씁니다.
+    즉, 사용자는 Job Flow Override 를 이용해서 값을 Customize 합니다.
+    (예) config = {'a': 1, 'b':2}
+         job_flow_override = {'b':22, 'c':33}
+         config.update(job_flow_override) -> {'a':1, 'b':22, 'c':33}
+
+    [1] airflow/airflow/utils/db.py : Default connection 정보 포함 (예 emr-default)
+    [2] https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/emr.html#EMR.Client.run_job_flow
+        : Job flow override 에 전달하는 body 는 boto3 에서와 동일합니다.
+
     .. seealso::
         For more information on how to use this operator, take a look at the guide:
         :ref:`howto/operator:EmrCreateJobFlowOperator`
@@ -295,12 +307,12 @@ class EmrCreateJobFlowOperator(BaseOperator):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.aws_conn_id = aws_conn_id
-        self.emr_conn_id = emr_conn_id
+        self.aws_conn_id = aws_conn_id  # 기본 'aws_default' 사용합니다.
+        self.emr_conn_id = emr_conn_id  # 기본 'emr_default' 사용합니다. 사용을 위해서는 job_flow_override 필수
         if job_flow_overrides is None:
             job_flow_overrides = {}
         self.job_flow_overrides = job_flow_overrides
-        self.region_name = region_name
+        self.region_name = region_name  # 별도의 region 을 선택한다면 파라미터로 전달합니다.
 
     def execute(self, context: 'Context') -> str:
         emr = EmrHook(
@@ -311,6 +323,7 @@ class EmrCreateJobFlowOperator(BaseOperator):
             'Creating JobFlow using aws-conn-id: %s, emr-conn-id: %s', self.aws_conn_id, self.emr_conn_id
         )
 
+        # job_flow_override 가 문자열로 전달되면, 적절한 타입으로 컨버팅 합니다. (dictionary)
         if isinstance(self.job_flow_overrides, str):
             job_flow_overrides: Dict[str, Any] = ast.literal_eval(self.job_flow_overrides)
             self.job_flow_overrides = job_flow_overrides
@@ -318,6 +331,7 @@ class EmrCreateJobFlowOperator(BaseOperator):
             job_flow_overrides = self.job_flow_overrides
         response = emr.create_job_flow(job_flow_overrides)
 
+        # 200(OK) 가 아니면 내부적으로 Exception 을 던집니다.
         if not response['ResponseMetadata']['HTTPStatusCode'] == 200:
             raise AirflowException(f'JobFlow creation failed: {response}')
         else:

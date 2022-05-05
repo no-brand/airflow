@@ -247,6 +247,8 @@ def create_default_connections(session: Session = NEW_SESSION):
         ),
         session,
     )
+    # emr_default connection: EMR cluster 생성시 사용되는 기본 configuration 입니다.
+    # boto3 EMR client 의 run_flow_job 의 파라미터로 전달됩니다.
     merge_conn(
         Connection(
             conn_id="emr_default",
