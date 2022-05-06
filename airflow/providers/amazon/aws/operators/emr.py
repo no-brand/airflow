@@ -42,6 +42,12 @@ class EmrAddStepsOperator(BaseOperator):
     """
     An operator that adds steps to an existing EMR job_flow.
 
+    EMR 클러스터에 Step 을 추가합니다.
+    job_flow_id, job_flow_name 을 통해서 EMR 클러스터를 식별합니다.
+
+    [1] https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/emr.html#EMR.Client.add_job_flow_steps
+        : Job flow 에 전달하는 Step 을 정의합니다.
+
     .. seealso::
         For more information on how to use this operator, take a look at the guide:
         :ref:`howto/operator:EmrAddStepsOperator`
@@ -73,8 +79,10 @@ class EmrAddStepsOperator(BaseOperator):
         steps: Optional[Union[List[dict], str]] = None,
         **kwargs,
     ):
+        # deprecated 된 xcom_push 대신, do_xcom_push 를 사용합니다.
         if kwargs.get('xcom_push') is not None:
             raise AirflowException("'xcom_push' was deprecated, use 'do_xcom_push' instead")
+        # EMR 클러스터 대상에 대한 식별이 가능해야 합니다.
         if not (job_flow_id is None) ^ (job_flow_name is None):
             raise AirflowException('Exactly one of job_flow_id or job_flow_name must be specified.')
         super().__init__(**kwargs)
@@ -86,6 +94,7 @@ class EmrAddStepsOperator(BaseOperator):
         self.cluster_states = cluster_states
         self.steps = steps
 
+    # XCom: {'job_flow_id': 'j-XXX', 'return_value': ['s-XXX']}
     def execute(self, context: 'Context') -> List[str]:
         emr_hook = EmrHook(aws_conn_id=self.aws_conn_id)
 
@@ -98,6 +107,14 @@ class EmrAddStepsOperator(BaseOperator):
         if not job_flow_id:
             raise AirflowException(f'No cluster found for name: {self.job_flow_name}')
 
+        # XCom (Cross Communication)
+        #   일반적으로 Task 들은 완전히 독립적 입니다. (다른 machine 에서 수행될 수 있는 형태)
+        #   XCom 은 Task 들이 서로 통신하도록 도와주는 매커니즘으로 Key, Value 형태를 저장합니다.
+        #   큰 사이즈의 데이터를 전달하는 용도가 이닙니다. (최대 48KB)
+        #
+        # xcom_push, xcom_pull 로 값을 저장하거나 읽어옵니다.
+        # [1] https://airflow.apache.org/docs/apache-airflow/stable/concepts/xcoms.html : XCom 정의
+        # [2] https://moons08.github.io/programming/airflow-xcom/: XCom 활용
         if self.do_xcom_push:
             context['ti'].xcom_push(key='job_flow_id', value=job_flow_id)
 
@@ -105,12 +122,14 @@ class EmrAddStepsOperator(BaseOperator):
 
         # steps may arrive as a string representing a list
         # e.g. if we used XCom or a file then: steps="[{ step1 }, { step2 }]"
+        # job_flow_override 가 문자열로 전달되면, 적절한 타입으로 컨버팅 합니다. (dictionary)
         steps = self.steps
         if isinstance(steps, str):
             steps = ast.literal_eval(steps)
 
         response = emr.add_job_flow_steps(JobFlowId=job_flow_id, Steps=steps)
 
+        # 200(OK) 가 아니면 내부적으로 Exception 을 던집니다.
         if not response['ResponseMetadata']['HTTPStatusCode'] == 200:
             raise AirflowException(f'Adding steps failed: {response}')
         else:
@@ -314,6 +333,7 @@ class EmrCreateJobFlowOperator(BaseOperator):
         self.job_flow_overrides = job_flow_overrides
         self.region_name = region_name  # 별도의 region 을 선택한다면 파라미터로 전달합니다.
 
+    # XCom: {'return_value': 'j-XXX'}
     def execute(self, context: 'Context') -> str:
         emr = EmrHook(
             aws_conn_id=self.aws_conn_id, emr_conn_id=self.emr_conn_id, region_name=self.region_name
