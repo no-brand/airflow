@@ -410,6 +410,9 @@ class EmrModifyClusterOperator(BaseOperator):
 class EmrTerminateJobFlowOperator(BaseOperator):
     """
     Operator to terminate EMR JobFlows.
+    EMR 클러스터를 종료합니다.
+
+    [1] https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/emr.html#EMR.Client.terminate_job_flows
 
     .. seealso::
         For more information on how to use this operator, take a look at the guide:
