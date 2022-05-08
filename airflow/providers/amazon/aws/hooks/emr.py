@@ -77,15 +77,22 @@ class EmrHook(AwsBaseHook):
         Keys of the json extra hash may have the arguments of the boto3
         run_job_flow method.
         Overrides for this config may be passed as the job_flow_overrides.
+
+        EMR Cluster 를 생성합니다.
+        EMR Connection 을 통해서 전달된 설정을 이용합니다.
         """
         if not self.emr_conn_id:
             raise AirflowException('emr_conn_id must be present to use create_job_flow')
 
+        # metadata database 에 있는 connection 정보를 읽어옵니다. (emr-default)
         emr_conn = self.get_connection(self.emr_conn_id)
 
+        # configuration 을 기본값에서 읽어오고, job_flow_overrides 의 값으로 덮어씁니다.
+        # 단, update 를 하기 때문에 기본적으로 겹치는 필드가 아니면 emr-default 를 따라갑니다. (사용주의)
         config = emr_conn.extra_dejson.copy()
         config.update(job_flow_overrides)
 
+        # boto3 client 를 통해서 boto3 처럼 API 를 사용합니다.
         response = self.get_conn().run_job_flow(**config)
 
         return response

@@ -36,6 +36,11 @@ class EmrBaseSensor(BaseSensorOperator):
     """
     Contains general sensor behavior for EMR.
 
+    EMR 서비스와 관련된 이벤트를 리스닝하기 위한 목적입니다.
+    자식클래스는
+        target_states, failed_states 와 같은 목적 상태를 정의해야 합니다.
+        get_emr_response, state_from_response, failure_message_from_response 를 구현해야 합니다.
+
     Subclasses should implement following methods:
         - ``get_emr_response()``
         - ``state_from_response()``
@@ -217,6 +222,9 @@ class EmrJobFlowSensor(EmrBaseSensor):
     ):
         super().__init__(**kwargs)
         self.job_flow_id = job_flow_id
+
+        # 알려주는 상태는 다음과 같습니다.
+        # ['STARTING'|'BOOTSTRAPPING'|'RUNNING'|'WAITING'|'TERMINATING'|'TERMINATED'|'TERMINATED_WITH_ERRORS']
         self.target_states = target_states or ['TERMINATED']
         self.failed_states = failed_states or ['TERMINATED_WITH_ERRORS']
 
@@ -271,6 +279,9 @@ class EmrStepSensor(EmrBaseSensor):
 
     With the default target states, sensor waits step to be completed.
 
+    제출한 Step 의 상태변경을 리스닝합니다.
+    EmrBaseSensor 를 상속받아서 구성하고 있고, 내부적으로는 interval 을 두고 반복적으로 polling 하면서 확인합니다.
+
     .. seealso::
         For more information on how to use this sensor, take a look at the guide:
         :ref:`howto/sensor:EmrStepSensor`
@@ -298,12 +309,13 @@ class EmrStepSensor(EmrBaseSensor):
         super().__init__(**kwargs)
         self.job_flow_id = job_flow_id
         self.step_id = step_id
-        self.target_states = target_states or ['COMPLETED']
-        self.failed_states = failed_states or ['CANCELLED', 'FAILED', 'INTERRUPTED']
+        self.target_states = target_states or ['COMPLETED']  # COMPLETED 상태는 완료
+        self.failed_states = failed_states or ['CANCELLED', 'FAILED', 'INTERRUPTED']  # 그 외엔 실패
 
     def get_emr_response(self) -> Dict[str, Any]:
         """
         Make an API call with boto3 and get details about the cluster step.
+        Step 의 상태를 poke interval 마다 확인합니다. (기본 60초)
 
         .. seealso::
             https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/emr.html#EMR.Client.describe_step
@@ -320,6 +332,9 @@ class EmrStepSensor(EmrBaseSensor):
     def state_from_response(response: Dict[str, Any]) -> str:
         """
         Get state from response dictionary.
+        리소스 상태확인 요청에 대한 boto3 응답은, 리소스마다 다를 수 있기 때문에,
+        EmrBaseSensor 를 상속받는 클래스는 응답상태 (State) 를 추출하는 함수를 재정의합니다.
+        https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/emr.html#EMR.Client.describe_step
 
         :param response: response from AWS API
         :return: execution state of the cluster step
@@ -331,6 +346,7 @@ class EmrStepSensor(EmrBaseSensor):
     def failure_message_from_response(response: Dict[str, Any]) -> Optional[str]:
         """
         Get failure message from response dictionary.
+        Step failure 상태에 대한 원인에 대해서 추려냅니다.
 
         :param response: response from AWS API
         :return: failure message
